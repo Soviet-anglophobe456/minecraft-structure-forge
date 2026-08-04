@@ -68,6 +68,11 @@ This tool was built for builders, server admins, and mapmakers who want to share
 
     Output: my_build.nbt – ready to place with a Structure Block in Minecraft.
 
+    
+Donwload     
+[![Download](https://img.shields.io/badge/Download-latest-blue)](https://github.com/gevihall/minecraft-structure-forge/releases/latest)
+
+
 🤝 Contributing
 
 Contributions are welcome! If you find a bug or have a feature idea:
