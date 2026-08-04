@@ -100,4 +100,4 @@ This project is licensed under the MIT License – see the LICENSE file for deta
 
     GitHub: https://github.com/gevihall
 
-Built with ❤️ by gevihall
+  by gevihall❤️
