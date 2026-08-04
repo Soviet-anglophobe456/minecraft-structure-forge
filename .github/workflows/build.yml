@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 name: Build Windows EXE
 
 on:
@@ -82,3 +83,40 @@ jobs:
           path: dist/MinecraftStructureForge.exe
           if-no-files-found: error
           compression-level: 0
+=======
+name: Build Windows Executable
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: |
+          pip install pyinstaller
+          pyinstaller --onefile --windowed --icon=icon.ico --name="MinecraftStructureForge" main.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MinecraftStructureForge
+          path: dist/MinecraftStructureForge.exe
+>>>>>>> dcb6523500d49b990f60d6ea9278ffda12b3e023
