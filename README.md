@@ -4,14 +4,14 @@ Convert .schematic (WorldEdit) to .nbt (Structure Block) files with a beautiful 
 
 [imgur](https://imgur.com/a/Xdz6xu2)
 
-📖 About
+##📖 About
 
 Minecraft Structure Forge is a desktop tool that lets you convert Minecraft structure files from the popular .schematic format (used by WorldEdit, Sponge, etc.) into the vanilla .nbt structure block format - with zero command-line hassle.
 
 Just drag & drop your schematic, preview it in 3D, optionally replace blocks, and click Convert. That's it!
 
 This tool was built for builders, server admins, and mapmakers who want to share or import builds without fighting with conversion scripts.
-✨ Features
+##✨ Features
 
     🔄 One‑click conversion - .schematic → .nbt in seconds.
 
@@ -29,7 +29,7 @@ This tool was built for builders, server admins, and mapmakers who want to share
 
     📦 Portable - single .exe file, no installation required.
 
-🚀 Installation & Usage
+##🚀 Installation & Usage
 📦 For Windows (.exe – recommended)
 
     Download the latest MinecraftStructureForge.exe from the Releases page.
@@ -42,7 +42,7 @@ This tool was built for builders, server admins, and mapmakers who want to share
 
     Click Convert - your .nbt file will be saved in the same folder.
 
-🐍 For Developers (run from source)
+##🐍 For Developers (run from source)
 
     Clone the repository:
     bash
@@ -60,7 +60,7 @@ This tool was built for builders, server admins, and mapmakers who want to share
 
     python main.py
 
-🧪 Example
+##🧪 Example
 
     Input: my_build.schematic (size 64×32×64)
 
@@ -73,7 +73,7 @@ Donwload
 [![Download](https://img.shields.io/badge/Download-latest-blue)](https://github.com/gevihall/minecraft-structure-forge/releases/latest)
 
 
-🤝 Contributing
+##🤝 Contributing
 
 Contributions are welcome! If you find a bug or have a feature idea:
 
