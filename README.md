@@ -81,15 +81,7 @@ Contributions are welcome! If you find a bug or have a feature idea:
 
     Submit a pull request
 
-## 💖 Support the project
-
-If you find this tool useful, consider supporting its development:
-
-- ⭐ **Star this repository** on GitHub – it helps others discover the project
-- ☕ **Buy me a coffee** – every little bit keeps me motivated!
-
-[![GitHub stars](https://img.shields.io/github/stars/gevihall/minecraft-structure-forge?style=social)](https://github.com/gevihall/minecraft-structure-forge/stargazers)
-[![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=flat&logo=kofi&logoColor=white)](https://ko-fi.com/gevihall)
+    ⭐ Star the repo if you find it useful
 
 📜 License
 
@@ -100,4 +92,4 @@ This project is licensed under the MIT License – see the LICENSE file for deta
 
     GitHub: https://github.com/gevihall
 
-  by gevihall❤️
+Built with ❤️ by gevihall

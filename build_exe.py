@@ -219,6 +219,7 @@ def _verify_runtime_modules() -> None:
         "tkinterdnd2": "tkinterdnd2",
         "pyglet": "pyglet",
         "OpenGL": "PyOpenGL",
+        "numpy": "numpy",
         "PyInstaller": "PyInstaller",
     }
     missing = [
@@ -371,6 +372,9 @@ def _build_command(python_exe: Path) -> List[str]:
         "--collect-all=pyglet",
         "--collect-submodules=OpenGL",
         "--hidden-import=PIL.ImageTk",
+        # These modules are reached by lazy imports when an export/viewer is opened.
+        "--hidden-import=advanced_viewer",
+        "--hidden-import=mesh_export",
         # --icon встраивает значок в EXE, --add-data делает его доступным main.py.
         "--icon={}".format(ICON_FILE),
         "--add-data={}{}.".format(ICON_FILE, os.pathsep),

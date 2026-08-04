@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import copy
 import math
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List as PyList, Optional, Sequence, Tuple, Union
 
 import nbtlib
 from nbtlib import File
-from nbtlib.tag import ByteArray, Compound, Double, Int, IntArray, List, Short, String
+from nbtlib.tag import ByteArray, Compound, Double, Int, IntArray, List, Long, LongArray, Short, String
 
 from utils import (
     BlockState,
@@ -430,6 +431,245 @@ def load_structure_nbt(path: Union[str, Path], progress: ProgressCallback = None
     return structure
 
 
+def _xyz_compound(tag: object, label: str) -> Tuple[int, int, int]:
+    """Read an x/y/z compound used by the Litematica format."""
+
+    if isinstance(tag, Compound) and all(axis in tag for axis in ("x", "y", "z")):
+        return int(tag["x"]), int(tag["y"]), int(tag["z"])
+    if isinstance(tag, (list, List, IntArray)) and len(tag) >= 3:
+        return int(tag[0]), int(tag[1]), int(tag[2])
+    raise ConversionError(f"Litematic contains an invalid {label} tag.")
+
+
+def _unpack_litematic_indices(values: Iterable[int], volume: int, bits: int) -> PyList[int]:
+    """Decode palette indices packed continuously into signed Java long values."""
+
+    if bits <= 0 or bits > 32:
+        raise ConversionError(f"Unsupported Litematic palette width: {bits} bits.")
+    words = [int(value) & 0xFFFFFFFFFFFFFFFF for value in values]
+    expected_words = (volume * bits + 63) // 64
+    if len(words) < expected_words:
+        raise ConversionError(
+            f"Litematic BlockStates contains {len(words)} long values instead of at least {expected_words}."
+        )
+    mask = (1 << bits) - 1
+    result: PyList[int] = []
+    for index in range(volume):
+        bit_index = index * bits
+        word_index, offset = divmod(bit_index, 64)
+        value = words[word_index] >> offset
+        spill = offset + bits - 64
+        if spill > 0:
+            value |= words[word_index + 1] << (bits - spill)
+        result.append(value & mask)
+    return result
+
+
+def _pack_litematic_indices(values: Sequence[int], bits: int) -> PyList[int]:
+    """Pack palette indices into signed Java long values without per-long padding."""
+
+    if bits <= 0 or bits > 32:
+        raise ConversionError(f"Unsupported Litematic palette width: {bits} bits.")
+    mask = (1 << bits) - 1
+    words = [0] * ((len(values) * bits + 63) // 64)
+    for index, raw_value in enumerate(values):
+        value = int(raw_value)
+        if value < 0 or value > mask:
+            raise ConversionError(f"Palette index {value} cannot be stored in {bits} bits.")
+        bit_index = index * bits
+        word_index, offset = divmod(bit_index, 64)
+        words[word_index] |= (value << offset) & 0xFFFFFFFFFFFFFFFF
+        if offset + bits > 64:
+            words[word_index + 1] |= value >> (64 - offset)
+    return [word - (1 << 64) if word >= (1 << 63) else word for word in words]
+
+
+def _litematic_palette(tag: object) -> PyList[BlockState]:
+    """Convert a Litematica BlockStatePalette list to internal block states."""
+
+    if not isinstance(tag, (list, List)) or not tag:
+        raise ConversionError("Litematic region does not contain a BlockStatePalette list.")
+    palette: PyList[BlockState] = []
+    for number, entry in enumerate(tag):
+        if not isinstance(entry, Compound) or "Name" not in entry:
+            raise ConversionError(f"Invalid BlockStatePalette entry #{number}.")
+        raw_properties = entry.get("Properties")
+        properties = (
+            {str(key): str(value) for key, value in raw_properties.items()}
+            if isinstance(raw_properties, Compound)
+            else {}
+        )
+        palette.append(make_block_state(str(entry["Name"]), properties))
+    return palette
+
+
+def load_litematic(path: Union[str, Path], progress: ProgressCallback = None) -> StructureData:
+    """Load all regions from a Litematica file into one normalized structure."""
+
+    source = Path(path)
+    if not source.is_file():
+        raise ConversionError(f"File not found: {source}")
+    if source.suffix.lower() != ".litematic":
+        raise ConversionError("Expected a file with the .litematic extension.")
+    _progress(progress, 3, "Opening Litematic NBT...")
+    root = _load_root(source)
+    regions_tag = root.get("Regions")
+    if not isinstance(regions_tag, Compound) or not regions_tag:
+        raise ConversionError("Litematic file does not contain any regions.")
+
+    region_specs = []
+    global_min = [2**31 - 1, 2**31 - 1, 2**31 - 1]
+    global_max = [-(2**31), -(2**31), -(2**31)]
+    for region_name, region in regions_tag.items():
+        if not isinstance(region, Compound):
+            continue
+        position = _xyz_compound(region.get("Position"), f"Position in region {region_name}")
+        signed_size = _xyz_compound(region.get("Size"), f"Size in region {region_name}")
+        if any(value == 0 for value in signed_size):
+            raise ConversionError(f"Region {region_name} has a zero-sized axis.")
+        size = tuple(abs(value) for value in signed_size)
+        for axis in range(3):
+            if signed_size[axis] > 0:
+                low, high = position[axis], position[axis] + signed_size[axis] - 1
+            else:
+                low, high = position[axis] + signed_size[axis] + 1, position[axis]
+            global_min[axis] = min(global_min[axis], low)
+            global_max[axis] = max(global_max[axis], high)
+        region_specs.append((str(region_name), region, position, signed_size, size))
+    if not region_specs:
+        raise ConversionError("Litematic file contains no readable regions.")
+
+    width, height, length = (
+        global_max[0] - global_min[0] + 1,
+        global_max[1] - global_min[1] + 1,
+        global_max[2] - global_min[2] + 1,
+    )
+    air = make_block_state("minecraft:air")
+    blocks = [air] * (width * height * length)
+    block_entities: PyList[BlockEntityData] = []
+    entities: PyList[EntityData] = []
+    region_count = len(region_specs)
+
+    for region_number, (region_name, region, position, signed_size, size) in enumerate(region_specs):
+        rw, rh, rl = size
+        volume = rw * rh * rl
+        palette = _litematic_palette(region.get("BlockStatePalette"))
+        bits = max(2, (len(palette) - 1).bit_length())
+        raw_states = region.get("BlockStates")
+        if not isinstance(raw_states, LongArray):
+            raise ConversionError(f"Region {region_name} does not contain a LongArray BlockStates tag.")
+        indices = _unpack_litematic_indices(raw_states, volume, bits)
+
+        def storage_to_global(local: Sequence[Union[int, float]]) -> Tuple[Union[int, float], ...]:
+            """Map packed-array coordinates to schematic coordinates."""
+
+            return tuple(
+                position[axis] + local[axis]
+                if signed_size[axis] > 0
+                else position[axis] + signed_size[axis] + 1 + local[axis]
+                for axis in range(3)
+            )
+
+        def region_to_global(relative: Sequence[Union[int, float]]) -> Tuple[Union[int, float], ...]:
+            """Entities store signed coordinates in the region coordinate system."""
+
+            return tuple(position[axis] + relative[axis] for axis in range(3))
+
+        for local_index, palette_index in enumerate(indices):
+            if palette_index >= len(palette):
+                raise ConversionError(
+                    f"Region {region_name} references palette index {palette_index}, "
+                    f"but its palette has {len(palette)} entries."
+                )
+            lx = local_index % rw
+            local_yz = local_index // rw
+            lz = local_yz % rl
+            ly = local_yz // rl
+            gx, gy, gz = storage_to_global((lx, ly, lz))
+            nx, ny, nz = int(gx) - global_min[0], int(gy) - global_min[1], int(gz) - global_min[2]
+            blocks[(ny * length + nz) * width + nx] = palette[palette_index]
+
+        for item in _read_block_entities(region.get("TileEntities", region.get("BlockEntities"))):
+            raw_global = region_to_global(item.pos)
+            normalized = tuple(int(raw_global[axis]) - global_min[axis] for axis in range(3))
+            block_entities.append(BlockEntityData(normalized, item.nbt))
+
+        for item in _read_entities(region.get("Entities")):
+            raw_pos = region_to_global(item.pos)
+            raw_block = region_to_global(item.block_pos)
+            normalized_pos = tuple(float(raw_pos[axis]) - global_min[axis] for axis in range(3))
+            normalized_block = tuple(int(raw_block[axis]) - global_min[axis] for axis in range(3))
+            entities.append(EntityData(normalized_pos, normalized_block, item.nbt))
+        _progress(progress, 10 + int((region_number + 1) / region_count * 48), "Reading Litematic regions...")
+
+    structure = StructureData(
+        width, height, length, blocks, block_entities, entities,
+        int(root.get("MinecraftDataVersion", root.get("DataVersion", DEFAULT_DATA_VERSION))),
+        f"Litematica ({region_count} region{'s' if region_count != 1 else ''})",
+    )
+    structure.validate()
+    _progress(progress, 60, "Litematic loaded")
+    return structure
+
+
+def load_structure_file(path: Union[str, Path], progress: ProgressCallback = None) -> StructureData:
+    """Load any structure format supported by the application."""
+
+    suffix = Path(path).suffix.lower()
+    if suffix == ".litematic":
+        return load_litematic(path, progress)
+    if suffix == ".nbt":
+        return load_structure_nbt(path, progress)
+    if suffix in (".schematic", ".schem"):
+        return load_schematic(path, progress)
+    raise ConversionError(f"Unsupported input format: {suffix or '(no extension)' }.")
+
+
+def extract_region(
+    structure: StructureData,
+    first: Sequence[int],
+    second: Sequence[int],
+) -> StructureData:
+    """Return an inclusive cuboid selection translated to a local 0,0,0 origin."""
+
+    if len(first) != 3 or len(second) != 3:
+        raise ConversionError("A region requires two x/y/z coordinates.")
+    low = tuple(min(int(first[axis]), int(second[axis])) for axis in range(3))
+    high = tuple(max(int(first[axis]), int(second[axis])) for axis in range(3))
+    bounds = (structure.width, structure.height, structure.length)
+    if any(low[axis] < 0 or high[axis] >= bounds[axis] for axis in range(3)):
+        raise ConversionError(
+            f"Selection {low}..{high} is outside structure bounds "
+            f"0..({structure.width - 1}, {structure.height - 1}, {structure.length - 1})."
+        )
+    width, height, length = (high[axis] - low[axis] + 1 for axis in range(3))
+    blocks: PyList[BlockState] = []
+    for y in range(low[1], high[1] + 1):
+        for z in range(low[2], high[2] + 1):
+            for x in range(low[0], high[0] + 1):
+                blocks.append(structure.blocks[structure.index(x, y, z)])
+    block_entities = [
+        BlockEntityData(tuple(item.pos[axis] - low[axis] for axis in range(3)), _deep_compound(item.nbt))
+        for item in structure.block_entities
+        if all(low[axis] <= item.pos[axis] <= high[axis] for axis in range(3))
+    ]
+    entities = [
+        EntityData(
+            tuple(item.pos[axis] - low[axis] for axis in range(3)),
+            tuple(item.block_pos[axis] - low[axis] for axis in range(3)),
+            _deep_compound(item.nbt),
+        )
+        for item in structure.entities
+        if all(low[axis] <= item.block_pos[axis] <= high[axis] for axis in range(3))
+    ]
+    result = StructureData(
+        width, height, length, blocks, block_entities, entities,
+        structure.data_version, f"Selection from {structure.source_format}", list(structure.warnings),
+    )
+    result.validate()
+    return result
+
+
 def replace_blocks(structure: StructureData, source: str, target: str) -> Tuple[StructureData, int]:
     """Заменяет состояния блоков и возвращает новую структуру и число замен."""
 
@@ -597,23 +837,125 @@ def save_sponge_schematic(structure: StructureData, path: Union[str, Path], prog
     return destination
 
 
+def save_litematic(
+    structure: StructureData,
+    path: Union[str, Path],
+    progress: ProgressCallback = None,
+    name: Optional[str] = None,
+    author: str = "Minecraft Structure Forge",
+    description: str = "Exported by Minecraft Structure Forge",
+) -> Path:
+    """Save a structure as a single-region Litematica schematic."""
+
+    structure.validate()
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    air = make_block_state("minecraft:air")
+    palette = list(structure.palette)
+    if air in palette:
+        palette.remove(air)
+    palette.insert(0, air)
+    palette_ids = {block: index for index, block in enumerate(palette)}
+    indices = [palette_ids[block] for block in structure.blocks]
+    bits = max(2, (len(palette) - 1).bit_length())
+    packed = _pack_litematic_indices(indices, bits)
+
+    tile_entities = []
+    for item in structure.block_entities:
+        data = _deep_compound(item.nbt)
+        data["x"], data["y"], data["z"] = (Int(value) for value in item.pos)
+        tile_entities.append(data)
+    entities = []
+    for item in structure.entities:
+        data = _deep_compound(item.nbt)
+        data["Pos"] = List[Double]([Double(value) for value in item.pos])
+        entities.append(data)
+
+    def xyz(x: int, y: int, z: int) -> Compound:
+        return Compound({"x": Int(x), "y": Int(y), "z": Int(z)})
+
+    region = Compound({
+        "Position": xyz(0, 0, 0),
+        "Size": xyz(structure.width, structure.height, structure.length),
+        "BlockStatePalette": List[Compound]([_palette_entry(block) for block in palette]),
+        "BlockStates": LongArray(packed),
+        "Entities": List[Compound](entities),
+        "TileEntities": List[Compound](tile_entities),
+        "PendingBlockTicks": List[Compound]([]),
+        "PendingFluidTicks": List[Compound]([]),
+    })
+    now_ms = int(time.time() * 1000)
+    display_name = name or destination.stem or "Structure"
+    total_blocks = sum(1 for block in structure.blocks if block.name not in {
+        "minecraft:air", "minecraft:cave_air", "minecraft:void_air", "minecraft:structure_void"
+    })
+    metadata = Compound({
+        "Name": String(display_name),
+        "Author": String(author),
+        "Description": String(description),
+        "RegionCount": Int(1),
+        "TimeCreated": Long(now_ms),
+        "TimeModified": Long(now_ms),
+        "TotalBlocks": Int(total_blocks),
+        "TotalVolume": Int(structure.volume),
+        "EnclosingSize": xyz(structure.width, structure.height, structure.length),
+    })
+    root = Compound({
+        "Version": Int(6),
+        "SubVersion": Int(1),
+        "MinecraftDataVersion": Int(structure.data_version or DEFAULT_DATA_VERSION),
+        "Metadata": metadata,
+        "Regions": Compound({display_name: region}),
+    })
+    _progress(progress, 88, "Writing Litematic...")
+    try:
+        # nbtlib 1.x expects a mapping from the root name to the root compound.
+        File({"": root}, gzipped=True).save(str(destination))
+    except (OSError, TypeError, ValueError) as exc:
+        raise ConversionError(f"Could not save Litematic file: {exc}") from exc
+    _progress(progress, 100, "Done")
+    return destination
+
+
+def save_structure_file(
+    structure: StructureData,
+    path: Union[str, Path],
+    progress: ProgressCallback = None,
+    texture_pack: Optional[Union[str, Path]] = None,
+) -> Path:
+    """Save a structure according to the destination extension."""
+
+    destination = Path(path)
+    suffix = destination.suffix.lower()
+    if suffix == ".nbt":
+        return save_structure_nbt(structure, destination, progress)
+    if suffix in (".schematic", ".schem"):
+        return save_sponge_schematic(structure, destination, progress)
+    if suffix == ".litematic":
+        return save_litematic(structure, destination, progress)
+    if suffix in (".stl", ".obj"):
+        from mesh_export import export_obj, export_stl
+
+        if suffix == ".stl":
+            return export_stl(structure, destination, progress=progress)
+        return export_obj(structure, destination, texture_pack=texture_pack, progress=progress)
+    raise ConversionError(f"Unsupported output format: {suffix or '(no extension)'}.")
+
+
 def convert_file(
     source: Union[str, Path],
     destination: Union[str, Path],
     replacement: Optional[Tuple[str, str]] = None,
     rotation: int = 0,
     progress: ProgressCallback = None,
+    region: Optional[Tuple[Sequence[int], Sequence[int]]] = None,
+    texture_pack: Optional[Union[str, Path]] = None,
 ) -> Tuple[Path, StructureData, int]:
-    """Высокоуровневая функция конвертации в обе стороны."""
+    """Convert, transform and optionally crop any supported structure format."""
 
     source_path = Path(source)
     destination_path = Path(destination)
-    if source_path.suffix.lower() == ".nbt":
-        structure = load_structure_nbt(source_path, progress)
-        output_format = "schematic"
-    else:
-        structure = load_schematic(source_path, progress)
-        output_format = "nbt"
+    structure = load_structure_file(source_path, progress)
 
     replacements = 0
     if replacement:
@@ -622,10 +964,10 @@ def convert_file(
     if rotation:
         _progress(progress, 64, f"Поворот на {rotation}°…")
         structure = rotate_structure(structure, rotation)
-    if output_format == "nbt":
-        result = save_structure_nbt(structure, destination_path, progress)
-    else:
-        result = save_sponge_schematic(structure, destination_path, progress)
+    if region:
+        _progress(progress, 66, "Cropping selected region...")
+        structure = extract_region(structure, region[0], region[1])
+    result = save_structure_file(structure, destination_path, progress, texture_pack)
     return result, structure, replacements
 
 

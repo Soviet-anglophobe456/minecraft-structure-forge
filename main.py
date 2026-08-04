@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import ctypes
 import importlib.util
 import math
@@ -15,7 +16,7 @@ import time
 import tkinter as tk
 import webbrowser
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 from converter import (
@@ -26,11 +27,15 @@ from converter import (
     build_3d_render_model,
     build_preview_map,
     convert_file,
+    extract_region,
+    load_structure_file,
     load_schematic,
     load_structure_nbt,
     replace_blocks,
     rotate_structure,
+    save_structure_file,
 )
+from advanced import LAYER_NAMES, PluginManager, block_statistics
 from utils import STANDARD_BLOCK_NAMES, autocomplete_block_names
 
 try:
@@ -68,26 +73,34 @@ LANG: Dict[str, Dict[str, str]] = {
     "ru": {
         "window_title": "Minecraft Structure Forge {version}",
         "app_name": "Minecraft Structure Forge",
-        "subtitle_dnd": "Перетащите файл в окно • WorldEdit / Sponge ↔ Java Structure NBT",
-        "subtitle": "WorldEdit / Sponge Schematic ↔ Java Structure NBT",
+        "subtitle_dnd": "Перетащите файл в окно • Schematic / Litematic / NBT / OBJ / STL",
+        "subtitle": "Schematic / Litematic / NBT / OBJ / STL",
         "mode_nbt": "SCHEMATIC  →  NBT",
         "mode_sponge": "NBT  →  SPONGE",
+        "mode_litematic": "LITEMATIC  →  EXPORT",
         "language": "Язык:",
         "check_updates": "Проверить обновления",
         "update_title": "Обновления",
         "update_current": "Установлена актуальная версия {version}.",
         "source": "Исходный файл",
         "choose_file": "📂  Выбрать файл",
-        "drop_hint": "Можно бросить сюда .schematic, .schem или .nbt",
+        "drop_hint": "Можно бросить сюда .schematic, .schem, .nbt или .litematic",
         "drop_missing": "Drag & Drop станет доступен после установки tkinterdnd2",
         "drop_unavailable": "Drag & Drop недоступен в этой сборке Tk",
         "output": "Папка сохранения",
+        "output_format": "Формат:",
+        "automatic": "Авто",
         "folder": "📁  Папка",
         "transformations": "Преобразования",
         "optional": "необязательно",
         "replace": "Заменить блоки",
         "autocomplete": "Начните печатать — список отфильтруется автоматически",
         "rotation_y": "Поворот постройки вокруг оси Y",
+        "advanced_export": "✂ Экспорт региона",
+        "viewer_settings": "⚙ 3D-настройки",
+        "statistics": "⌕ Статистика",
+        "plugins": "🧩 Плагины",
+        "accent": "Цвет акцента",
         "convert": "⚡  КОНВЕРТИРОВАТЬ",
         "preview": "Интерактивное превью сверху",
         "open_3d": "◈  Открыть 3D",
@@ -110,15 +123,16 @@ LANG: Dict[str, Dict[str, str]] = {
         "status_done": "Конвертация: {seconds:.2f} с  •  Сохранено: {filename}",
         "status_wait": "Дождитесь завершения текущей операции",
         "status_3d": "3D-просмотр открыт в отдельном окне",
-        "status_drop_error": "Ошибка: перетащите файл .schematic, .schem или .nbt",
+        "status_drop_error": "Ошибка: перетащите файл .schematic, .schem, .nbt или .litematic",
         "status_not_found": "Ошибка: файл не найден — {path}",
-        "status_extension": "Ошибка: поддерживаются .schematic, .schem и .nbt",
+        "status_extension": "Ошибка: поддерживаются .schematic, .schem, .nbt и .litematic",
         "status_output_missing": "Ошибка: папка сохранения не существует",
         "status_error": "Ошибка: {error}",
         "select_dialog": "Выберите схему или Structure NBT",
         "filetype_all": "Minecraft-схемы",
         "filetype_schematic": "WorldEdit / Sponge",
         "filetype_nbt": "Structure NBT",
+        "filetype_litematic": "Litematica",
         "filetype_any": "Все файлы",
         "output_dialog": "Выберите папку сохранения",
         "warning_title": "Не всё заполнено",
@@ -143,30 +157,60 @@ LANG: Dict[str, Dict[str, str]] = {
         "3d_controls": "ПКМ: вращение • СКМ: панорама • колесо: масштаб • R: сброс • Esc: выход",
         "telegram": "Telegram: открыть канал",
         "author": "by gevihall ❤️",
+        "advanced_title": "Экспорт выделенного региона",
+        "viewer_settings_title": "Настройки 3D-просмотра",
+        "statistics_title": "Статистика блоков",
+        "plugins_title": "Плагины обработки",
+        "texture_pack": "Папка текстурпака",
+        "search_blocks": "Поиск / подсветка блоков",
+        "brush_block": "Блок кисти",
+        "brush_radius": "Радиус кисти",
+        "visible_layers": "Видимые слои",
+        "plugin_warning": "Запускайте только доверенные плагины: это обычный Python-код.",
+        "browse": "Обзор…",
+        "export_now": "Экспортировать",
+        "close": "Закрыть",
+        "run_plugin": "Запустить плагин",
+        "no_plugins": "Плагины не найдены. Добавьте .py-файлы в:\n{path}",
+        "plugin_applied": "Плагин применён: {name}",
+        "layer_terrain": "Земля и породы",
+        "layer_fluids": "Жидкости",
+        "layer_vegetation": "Растительность",
+        "layer_redstone": "Редстоун",
+        "layer_structure": "Постройка",
+        "layer_technical": "Технические блоки",
     },
     "en": {
         "window_title": "Minecraft Structure Forge {version}",
         "app_name": "Minecraft Structure Forge",
-        "subtitle_dnd": "Drop a file anywhere • WorldEdit / Sponge ↔ Java Structure NBT",
-        "subtitle": "WorldEdit / Sponge Schematic ↔ Java Structure NBT",
+        "subtitle_dnd": "Drop a file anywhere • Schematic / Litematic / NBT / OBJ / STL",
+        "subtitle": "Schematic / Litematic / NBT / OBJ / STL",
         "mode_nbt": "SCHEMATIC  →  NBT",
         "mode_sponge": "NBT  →  SPONGE",
+        "mode_litematic": "LITEMATIC  →  EXPORT",
         "language": "Language:",
         "check_updates": "Check for updates",
         "update_title": "Updates",
         "update_current": "You are running the latest version, {version}.",
         "source": "Source file",
         "choose_file": "📂  Choose file",
-        "drop_hint": "Drop a .schematic, .schem, or .nbt file here",
+        "drop_hint": "Drop a .schematic, .schem, .nbt, or .litematic file here",
         "drop_missing": "Install tkinterdnd2 to enable Drag & Drop",
         "drop_unavailable": "Drag & Drop is unavailable in this Tk build",
         "output": "Output folder",
+        "output_format": "Format:",
+        "automatic": "Auto",
         "folder": "📁  Folder",
         "transformations": "Transformations",
         "optional": "optional",
         "replace": "Replace blocks",
         "autocomplete": "Start typing to filter the block list",
         "rotation_y": "Rotate structure around the Y axis",
+        "advanced_export": "✂ Region export",
+        "viewer_settings": "⚙ 3D settings",
+        "statistics": "⌕ Statistics",
+        "plugins": "🧩 Plugins",
+        "accent": "Accent color",
         "convert": "⚡  CONVERT",
         "preview": "Interactive top preview",
         "open_3d": "◈  Open 3D",
@@ -189,15 +233,16 @@ LANG: Dict[str, Dict[str, str]] = {
         "status_done": "Converted in {seconds:.2f} s  •  Saved as {filename}",
         "status_wait": "Wait for the current operation to finish",
         "status_3d": "3D viewer opened in a separate window",
-        "status_drop_error": "Error: drop a .schematic, .schem, or .nbt file",
+        "status_drop_error": "Error: drop a .schematic, .schem, .nbt, or .litematic file",
         "status_not_found": "Error: file not found — {path}",
-        "status_extension": "Error: supported extensions are .schematic, .schem, and .nbt",
+        "status_extension": "Error: supported extensions are .schematic, .schem, .nbt, and .litematic",
         "status_output_missing": "Error: output folder does not exist",
         "status_error": "Error: {error}",
         "select_dialog": "Choose a schematic or Structure NBT",
         "filetype_all": "Minecraft schematics",
         "filetype_schematic": "WorldEdit / Sponge",
         "filetype_nbt": "Structure NBT",
+        "filetype_litematic": "Litematica",
         "filetype_any": "All files",
         "output_dialog": "Choose output folder",
         "warning_title": "Missing information",
@@ -222,6 +267,28 @@ LANG: Dict[str, Dict[str, str]] = {
         "3d_controls": "Right drag: rotate • middle drag: pan • wheel: zoom • R: reset • Esc: close",
         "telegram": "Telegram: open channel",
         "author": "by gevihall ❤️",
+        "advanced_title": "Export selected region",
+        "viewer_settings_title": "3D viewer settings",
+        "statistics_title": "Block statistics",
+        "plugins_title": "Processing plugins",
+        "texture_pack": "Texture-pack folder",
+        "search_blocks": "Block search / highlight",
+        "brush_block": "Brush block",
+        "brush_radius": "Brush radius",
+        "visible_layers": "Visible layers",
+        "plugin_warning": "Run trusted plugins only: plugins are regular Python code.",
+        "browse": "Browse…",
+        "export_now": "Export",
+        "close": "Close",
+        "run_plugin": "Run plugin",
+        "no_plugins": "No plugins found. Add .py files to:\n{path}",
+        "plugin_applied": "Plugin applied: {name}",
+        "layer_terrain": "Terrain",
+        "layer_fluids": "Fluids",
+        "layer_vegetation": "Vegetation",
+        "layer_redstone": "Redstone",
+        "layer_structure": "Structure",
+        "layer_technical": "Technical blocks",
     },
 }
 
@@ -276,6 +343,12 @@ class SchematicConverterApp(BaseWindow):
 
         self.source_var = tk.StringVar()
         self.output_var = tk.StringVar()
+        self.output_format_var = tk.StringVar(value=self._tr("automatic"))
+        self.texture_pack_var = tk.StringVar()
+        self.block_search_var = tk.StringVar()
+        self.brush_block_var = tk.StringVar(value="minecraft:stone")
+        self.brush_radius_var = tk.IntVar(value=0)
+        self.layer_vars = {name: tk.BooleanVar(value=True) for name in LAYER_NAMES}
         self.replace_var = tk.BooleanVar(value=False)
         self.replace_from_var = tk.StringVar(value="minecraft:stone")
         self.replace_to_var = tk.StringVar(value="minecraft:deepslate")
@@ -293,6 +366,7 @@ class SchematicConverterApp(BaseWindow):
         self._busy = False
         self._preview_photo: Optional[Any] = None
         self._preview_structure: Optional[StructureData] = None
+        self._structure_override: Optional[StructureData] = None
         self._preview_map: Optional[PreviewMap] = None
         self._preview_zoom = 16.0
         self._preview_origin = (0.0, 0.0)
@@ -428,6 +502,13 @@ class SchematicConverterApp(BaseWindow):
         self.output_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.output_button = ttk.Button(output_row, text=self._tr("folder"), style="Secondary.TButton", command=self._choose_output)
         self.output_button.grid(row=0, column=1)
+        ttk.Label(output_row, text=self._tr("output_format"), style="Muted.TLabel").grid(row=1, column=0, sticky="e", pady=(7, 0), padx=(0, 8))
+        self.output_format_box = ttk.Combobox(
+            output_row, textvariable=self.output_format_var,
+            values=(self._tr("automatic"), ".nbt", ".schem", ".schematic", ".litematic", ".stl", ".obj"),
+            state="readonly", width=13,
+        )
+        self.output_format_box.grid(row=1, column=1, sticky="e", pady=(7, 0))
 
         tk.Frame(controls, height=1, bg=self.COLORS["border"]).grid(row=5, column=0, sticky="ew", pady=(1, 11))
         options_header = ttk.Frame(controls, style="Panel.TFrame")
@@ -459,6 +540,27 @@ class SchematicConverterApp(BaseWindow):
         ttk.Label(rotation_row, text=self._tr("rotation_y"), style="Panel.TLabel").grid(row=0, column=0, sticky="w")
         self.rotation_box = ttk.Combobox(rotation_row, textvariable=self.rotation_var, values=("0°", "90°", "180°", "270°"), state="readonly", width=10)
         self.rotation_box.grid(row=0, column=1, sticky="e")
+
+        tools_row = ttk.Frame(controls, style="Panel.TFrame")
+        tools_row.grid(row=11, column=0, sticky="sew", pady=(11, 0))
+        for column in range(2):
+            tools_row.columnconfigure(column, weight=1)
+        self.region_export_button = ttk.Button(
+            tools_row, text=self._tr("advanced_export"), style="Tool.TButton", command=self._open_region_export, state="disabled",
+        )
+        self.region_export_button.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 5))
+        self.viewer_settings_button = ttk.Button(
+            tools_row, text=self._tr("viewer_settings"), style="Tool.TButton", command=self._open_viewer_settings, state="disabled",
+        )
+        self.viewer_settings_button.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 5))
+        self.statistics_button = ttk.Button(
+            tools_row, text=self._tr("statistics"), style="Tool.TButton", command=self._open_statistics, state="disabled",
+        )
+        self.statistics_button.grid(row=1, column=0, sticky="ew", padx=(0, 4))
+        self.plugins_button = ttk.Button(
+            tools_row, text=self._tr("plugins"), style="Tool.TButton", command=self._open_plugins, state="disabled",
+        )
+        self.plugins_button.grid(row=1, column=1, sticky="ew", padx=(4, 0))
 
         controls.rowconfigure(11, weight=1)
         self.progress = ttk.Progressbar(controls, variable=self.progress_var, maximum=100, style="Green.Horizontal.TProgressbar")
@@ -616,10 +718,13 @@ class SchematicConverterApp(BaseWindow):
         new_language = "en" if self.language_var.get() == "English" else "ru"
         if new_language == self._lang_code:
             return
+        automatic_output = self.output_format_var.get() in (LANG["ru"]["automatic"], LANG["en"]["automatic"])
         self._lang_code = new_language
+        if automatic_output:
+            self.output_format_var.set(self._tr("automatic"))
         self.title(self._tr("window_title", version=APP_VERSION))
-        reverse = Path(self.source_var.get()).suffix.lower() == ".nbt" if self.source_var.get() else False
-        self.mode_var.set(self._tr("mode_sponge" if reverse else "mode_nbt"))
+        suffix = Path(self.source_var.get()).suffix.lower() if self.source_var.get() else ""
+        self.mode_var.set(self._tr("mode_litematic" if suffix == ".litematic" else "mode_sponge" if suffix == ".nbt" else "mode_nbt"))
         was_busy = self._busy
         self.grid_var.set(self._tr("grid_none"))
         self.hover_var.set(self._tr("hover_default"))
@@ -662,7 +767,17 @@ class SchematicConverterApp(BaseWindow):
         viewer_arguments = [
             "--viewer3d", str(source), "--rotation", str(self._rotation_degrees()),
             "--lang", self._lang_code,
+            "--highlight", self.block_search_var.get().strip(),
+            "--brush", self.brush_block_var.get().strip() or "minecraft:stone",
+            "--brush-radius", str(max(0, int(self.brush_radius_var.get()))),
+            "--save-path", str(source.with_name(f"{source.stem}_edited.litematic")),
         ]
+        texture_pack = self.texture_pack_var.get().strip()
+        if texture_pack:
+            viewer_arguments.extend(["--texture-pack", texture_pack])
+        hidden_layers = ",".join(name for name, variable in self.layer_vars.items() if not variable.get())
+        if hidden_layers:
+            viewer_arguments.extend(["--hidden-layers", hidden_layers])
         if getattr(sys, "frozen", False):
             # В one-file сборке 3D-окно запускается повторным вызовом самого EXE.
             # Переменная PyInstaller просит загрузчик создать независимый процесс,
@@ -696,6 +811,283 @@ class SchematicConverterApp(BaseWindow):
             self._set_status(self._tr("status_error", error=exc), self.COLORS["danger"])
             messagebox.showerror(self._tr("3d_error_title"), str(exc), parent=self)
 
+    def _dialog(self, title_key: str, width: int = 560, height: int = 430) -> tk.Toplevel:
+        """Create a themed, modal-style utility window."""
+
+        dialog = tk.Toplevel(self)
+        dialog.title(self._tr(title_key))
+        dialog.geometry(f"{width}x{height}")
+        dialog.minsize(min(width, 460), min(height, 320))
+        dialog.configure(bg=self.COLORS["bg"])
+        dialog.transient(self)
+        try:
+            icon_path = resource_path("icon.ico")
+            if icon_path.is_file():
+                dialog.iconbitmap(str(icon_path))
+        except (OSError, tk.TclError):
+            pass
+        return dialog
+
+    def _choose_texture_pack(self) -> None:
+        """Select a Java resource-pack folder without assuming a platform path."""
+
+        initial = self.texture_pack_var.get() or str(Path.home())
+        path = filedialog.askdirectory(title=self._tr("texture_pack"), initialdir=initial, parent=self)
+        if path:
+            self.texture_pack_var.set(path)
+
+    def _choose_accent(self) -> None:
+        """Apply a user-selected accent color and rebuild the themed widgets."""
+
+        _rgb, selected = colorchooser.askcolor(self.COLORS["accent"], title=self._tr("accent"), parent=self)
+        if not selected:
+            return
+        self.COLORS["accent"] = selected
+        red, green, blue = (int(selected[index:index + 2], 16) for index in (1, 3, 5))
+        self.COLORS["accent_hover"] = "#{:02x}{:02x}{:02x}".format(
+            min(255, red + 30), min(255, green + 30), min(255, blue + 30),
+        )
+        was_busy = self._busy
+        self._configure_styles()
+        self._build_ui()
+        self._configure_drag_and_drop()
+        if self._preview_structure is not None and self._preview_map is not None:
+            self._show_preview(self._preview_structure, self._preview_map, fit=False)
+        self._set_busy(was_busy)
+
+    def _open_viewer_settings(self) -> None:
+        """Edit texture, layer, search and brush settings used by the 3D process."""
+
+        if self._preview_structure is None:
+            return
+        dialog = self._dialog("viewer_settings_title", 620, 570)
+        body = ttk.Frame(dialog, style="Panel.TFrame", padding=18)
+        body.pack(fill="both", expand=True, padx=14, pady=14)
+        body.columnconfigure(0, weight=1)
+
+        ttk.Label(body, text=self._tr("texture_pack"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        texture_row = ttk.Frame(body, style="Panel.TFrame")
+        texture_row.grid(row=1, column=0, sticky="ew", pady=(6, 12))
+        texture_row.columnconfigure(0, weight=1)
+        ttk.Entry(texture_row, textvariable=self.texture_pack_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ttk.Button(texture_row, text=self._tr("browse"), command=self._choose_texture_pack).grid(row=0, column=1)
+
+        ttk.Label(body, text=self._tr("search_blocks"), style="Section.TLabel").grid(row=2, column=0, sticky="w")
+        names = tuple(state.as_string() for state, _count in block_statistics(self._preview_structure))
+        search_box = ttk.Combobox(body, textvariable=self.block_search_var, values=names)
+        search_box.grid(row=3, column=0, sticky="ew", pady=(6, 12))
+
+        brush_row = ttk.Frame(body, style="Panel.TFrame")
+        brush_row.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        brush_row.columnconfigure(0, weight=1)
+        ttk.Label(brush_row, text=self._tr("brush_block"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(brush_row, text=self._tr("brush_radius"), style="Section.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
+        brush_box = ttk.Combobox(brush_row, textvariable=self.brush_block_var, values=STANDARD_BLOCK_NAMES)
+        brush_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        brush_box.bind("<KeyRelease>", lambda event: self._autocomplete_combo(brush_box, event))
+        tk.Spinbox(
+            brush_row, from_=0, to=8, textvariable=self.brush_radius_var, width=7,
+            bg=self.COLORS["entry"], fg=self.COLORS["text"], buttonbackground=self.COLORS["panel_alt"],
+            insertbackground=self.COLORS["text"], relief="flat",
+        ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(6, 0))
+
+        ttk.Label(body, text=self._tr("visible_layers"), style="Section.TLabel").grid(row=5, column=0, sticky="w")
+        layers = ttk.Frame(body, style="Panel.TFrame")
+        layers.grid(row=6, column=0, sticky="ew", pady=(6, 12))
+        for index, name in enumerate(LAYER_NAMES):
+            ttk.Checkbutton(
+                layers, text=self._tr(f"layer_{name}"), variable=self.layer_vars[name],
+            ).grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 22), pady=3)
+
+        footer = ttk.Frame(body, style="Panel.TFrame")
+        footer.grid(row=7, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(footer, text=self._tr("accent"), command=self._choose_accent).pack(side="left")
+        ttk.Button(footer, text=self._tr("close"), command=dialog.destroy).pack(side="right")
+        ttk.Button(
+            footer, text=self._tr("open_3d"),
+            command=lambda: (dialog.destroy(), self._open_3d_viewer()),
+        ).pack(side="right", padx=(0, 8))
+
+    def _open_statistics(self) -> None:
+        """Show searchable block counts and send a selected state to 3D highlighting."""
+
+        if self._preview_structure is None:
+            return
+        dialog = self._dialog("statistics_title", 650, 540)
+        body = ttk.Frame(dialog, style="Panel.TFrame", padding=16)
+        body.pack(fill="both", expand=True, padx=14, pady=14)
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
+        query_var = tk.StringVar(value=self.block_search_var.get())
+        query = ttk.Entry(body, textvariable=query_var)
+        query.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        tree = ttk.Treeview(body, columns=("block", "count"), show="headings", selectmode="browse")
+        tree.heading("block", text=self._tr("search_blocks"))
+        tree.heading("count", text="#")
+        tree.column("block", width=470, anchor="w")
+        tree.column("count", width=100, anchor="e")
+        tree.grid(row=1, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=tree.yview)
+        scrollbar.grid(row=1, column=1, sticky="ns")
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        def populate(*_args: Any) -> None:
+            tree.delete(*tree.get_children())
+            for state_value, count in block_statistics(self._preview_structure, query_var.get()):
+                tree.insert("", "end", values=(state_value.as_string(), f"{count:,}"))
+
+        def select_for_3d(_event: Any = None) -> None:
+            selection = tree.selection()
+            if selection:
+                self.block_search_var.set(str(tree.item(selection[0], "values")[0]))
+                query_var.set(self.block_search_var.get())
+
+        query_var.trace_add("write", populate)
+        tree.bind("<Double-1>", select_for_3d)
+        buttons = ttk.Frame(body, style="Panel.TFrame")
+        buttons.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        ttk.Button(buttons, text=self._tr("close"), command=dialog.destroy).pack(side="right")
+        ttk.Button(
+            buttons, text=self._tr("open_3d"),
+            command=lambda: (select_for_3d(), dialog.destroy(), self._open_3d_viewer()),
+        ).pack(side="right", padx=(0, 8))
+        populate()
+        query.focus_set()
+
+    def _open_region_export(self) -> None:
+        """Export an inclusive cuboid selection to any supported output format."""
+
+        if self._preview_structure is None:
+            return
+        dialog = self._dialog("advanced_title", 570, 390)
+        body = ttk.Frame(dialog, style="Panel.TFrame", padding=18)
+        body.pack(fill="both", expand=True, padx=14, pady=14)
+        structure = self._structure_override or self._preview_structure
+        coordinates = [
+            tk.IntVar(value=0), tk.IntVar(value=0), tk.IntVar(value=0),
+            tk.IntVar(value=structure.width - 1), tk.IntVar(value=structure.height - 1), tk.IntVar(value=structure.length - 1),
+        ]
+        ttk.Label(body, text="X1 / Y1 / Z1", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(body, text="X2 / Y2 / Z2", style="Section.TLabel").grid(row=0, column=3, columnspan=3, sticky="w", padx=(14, 0))
+        for index, variable in enumerate(coordinates):
+            tk.Spinbox(
+                body, from_=0, to=max(structure.width, structure.height, structure.length),
+                textvariable=variable, width=7, bg=self.COLORS["entry"], fg=self.COLORS["text"],
+                insertbackground=self.COLORS["text"], buttonbackground=self.COLORS["panel_alt"], relief="flat",
+            ).grid(row=1, column=index, padx=(14 if index == 3 else 0, 6), pady=(7, 16), sticky="ew")
+        format_var = tk.StringVar(value=".litematic")
+        ttk.Label(body, text=self._tr("output_format"), style="Section.TLabel").grid(row=2, column=0, columnspan=2, sticky="w")
+        ttk.Combobox(
+            body, textvariable=format_var, values=(".litematic", ".nbt", ".schem", ".schematic", ".stl", ".obj"),
+            state="readonly",
+        ).grid(row=3, column=0, columnspan=6, sticky="ew", pady=(6, 12))
+        ttk.Label(
+            body,
+            text="STL uses 1 mm per block. OBJ creates a .mtl file and a PNG texture atlas.",
+            style="Muted.TLabel", wraplength=500,
+        ).grid(row=4, column=0, columnspan=6, sticky="w")
+
+        def start_export() -> None:
+            suffix = format_var.get()
+            output = filedialog.asksaveasfilename(
+                parent=dialog, defaultextension=suffix,
+                initialdir=self.output_var.get() or str(Path.home()),
+                initialfile=f"{Path(self.source_var.get()).stem}_region{suffix}",
+                filetypes=((suffix.upper().lstrip("."), f"*{suffix}"), (self._tr("filetype_any"), "*.*")),
+            )
+            if not output:
+                return
+            first = tuple(variable.get() for variable in coordinates[:3])
+            second = tuple(variable.get() for variable in coordinates[3:])
+            try:
+                selected = extract_region(structure, first, second)
+            except (ConversionError, tk.TclError, ValueError) as exc:
+                messagebox.showerror(self._tr("format_error"), str(exc), parent=dialog)
+                return
+            dialog.destroy()
+            self._job_id += 1
+            job_id = self._job_id
+            self._set_busy(True)
+            self.progress_var.set(0)
+            self._set_status(self._tr("status_start"), self.COLORS["blue"])
+
+            def worker() -> None:
+                try:
+                    started = time.perf_counter()
+                    callback = lambda value, text: self._events.put((job_id, "progress", value, text))
+                    result = save_structure_file(
+                        selected, output, callback, self.texture_pack_var.get().strip() or None,
+                    )
+                    preview = build_preview_map(selected)
+                    elapsed = time.perf_counter() - started
+                    self._events.put((job_id, "convert_done", result, selected, 0, preview, elapsed))
+                except Exception as exc:
+                    self._events.put((job_id, "error", exc))
+
+            threading.Thread(target=worker, daemon=True, name="region-exporter").start()
+
+        buttons = ttk.Frame(body, style="Panel.TFrame")
+        buttons.grid(row=5, column=0, columnspan=6, sticky="sew", pady=(30, 0))
+        ttk.Button(buttons, text=self._tr("close"), command=dialog.destroy).pack(side="right")
+        ttk.Button(buttons, text=self._tr("export_now"), command=start_export).pack(side="right", padx=(0, 8))
+
+    def _open_plugins(self) -> None:
+        """Discover and run trusted local structure-processing plugins."""
+
+        if self._preview_structure is None:
+            return
+        base_folder = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+        manager = PluginManager(base_folder / "plugins")
+        plugins = manager.discover()
+        dialog = self._dialog("plugins_title", 620, 480)
+        body = ttk.Frame(dialog, style="Panel.TFrame", padding=16)
+        body.pack(fill="both", expand=True, padx=14, pady=14)
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(1, weight=1)
+        ttk.Label(body, text=self._tr("plugin_warning"), style="Muted.TLabel", wraplength=550).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        plugin_list = tk.Listbox(
+            body, bg=self.COLORS["entry"], fg=self.COLORS["text"], selectbackground=self.COLORS["blue"],
+            highlightbackground=self.COLORS["border"], relief="flat", font=("Segoe UI", 10),
+        )
+        plugin_list.grid(row=1, column=0, sticky="nsew")
+        description_var = tk.StringVar()
+        ttk.Label(body, textvariable=description_var, style="Muted.TLabel", wraplength=550).grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        for name in plugins:
+            plugin_list.insert("end", name)
+        if manager.errors:
+            description_var.set("\n".join(f"{name}: {error}" for name, error in manager.errors.items()))
+        elif not plugins:
+            description_var.set(self._tr("no_plugins", path=manager.plugin_folder))
+
+        def describe(_event: Any = None) -> None:
+            selected = plugin_list.curselection()
+            if selected:
+                plugin = plugins[plugin_list.get(selected[0])]
+                description_var.set(plugin.description or str(plugin.path))
+
+        def run_selected() -> None:
+            selected = plugin_list.curselection()
+            if not selected:
+                return
+            name = plugin_list.get(selected[0])
+            try:
+                source_structure = self._structure_override or self._preview_structure
+                result = manager.run(name, source_structure)
+                self._structure_override = result
+                preview = build_preview_map(result)
+                self._show_preview(result, preview, fit=True)
+                self._set_status(self._tr("plugin_applied", name=name), self.COLORS["accent"])
+                dialog.destroy()
+            except Exception as exc:
+                messagebox.showerror(self._tr("error"), str(exc), parent=dialog)
+
+        plugin_list.bind("<<ListboxSelect>>", describe)
+        plugin_list.bind("<Double-1>", lambda _event: run_selected())
+        buttons = ttk.Frame(body, style="Panel.TFrame")
+        buttons.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        ttk.Button(buttons, text=self._tr("close"), command=dialog.destroy).pack(side="right")
+        ttk.Button(buttons, text=self._tr("run_plugin"), command=run_selected).pack(side="right", padx=(0, 8))
+
     def _configure_drag_and_drop(self) -> None:
         """Регистрирует окно и Canvas как нативные цели Drag & Drop."""
 
@@ -721,7 +1113,7 @@ class SchematicConverterApp(BaseWindow):
             paths = (str(getattr(event, "data", "")).strip("{}"),)
         for raw_path in paths:
             candidate = Path(raw_path)
-            if candidate.suffix.lower() in (".schematic", ".schem", ".nbt"):
+            if candidate.suffix.lower() in (".schematic", ".schem", ".nbt", ".litematic"):
                 self._load_source_path(candidate)
                 return "break"
         self._set_status(self._tr("status_drop_error"), self.COLORS["danger"])
@@ -750,9 +1142,10 @@ class SchematicConverterApp(BaseWindow):
         path = filedialog.askopenfilename(
             title=self._tr("select_dialog"),
             filetypes=(
-                (self._tr("filetype_all"), "*.schematic *.schem *.nbt"),
+                (self._tr("filetype_all"), "*.schematic *.schem *.nbt *.litematic"),
                 (self._tr("filetype_schematic"), "*.schematic *.schem"),
                 (self._tr("filetype_nbt"), "*.nbt"),
+                (self._tr("filetype_litematic"), "*.litematic"),
                 (self._tr("filetype_any"), "*.*"),
             ),
         )
@@ -768,14 +1161,15 @@ class SchematicConverterApp(BaseWindow):
         if not source.is_file():
             self._set_status(self._tr("status_not_found", path=source), self.COLORS["danger"])
             return
-        if source.suffix.lower() not in (".schematic", ".schem", ".nbt"):
+        if source.suffix.lower() not in (".schematic", ".schem", ".nbt", ".litematic"):
             self._set_status(self._tr("status_extension"), self.COLORS["danger"])
             return
         self.source_var.set(str(source))
         self.output_var.set(str(source.parent))
-        reverse = source.suffix.lower() == ".nbt"
-        self.mode_var.set(self._tr("mode_sponge" if reverse else "mode_nbt"))
+        suffix = source.suffix.lower()
+        self.mode_var.set(self._tr("mode_litematic" if suffix == ".litematic" else "mode_sponge" if suffix == ".nbt" else "mode_nbt"))
         self._preview_structure = None
+        self._structure_override = None
         self._preview_map = None
         self._start_preview(source)
 
@@ -802,8 +1196,11 @@ class SchematicConverterApp(BaseWindow):
         self._busy = busy
         self.choose_button.configure(state="disabled" if busy else "normal")
         self.output_button.configure(state="disabled" if busy else "normal")
+        self.output_format_box.configure(state="disabled" if busy else "readonly")
         self.rotation_box.configure(state="disabled" if busy else "readonly")
         self.viewer_button.configure(state="normal" if self.source_var.get() and not busy else "disabled")
+        for widget in (self.region_export_button, self.viewer_settings_button, self.statistics_button, self.plugins_button):
+            widget.configure(state="normal" if self.source_var.get() and not busy else "disabled")
         self._toggle_replacement()
         ready = bool(self.source_var.get()) and not busy
         self.convert_button.configure(
@@ -837,7 +1234,7 @@ class SchematicConverterApp(BaseWindow):
         def worker() -> None:
             try:
                 callback = lambda value, text: self._events.put((job_id, "progress", value, text))
-                structure = load_structure_nbt(source, callback) if source.suffix.lower() == ".nbt" else load_schematic(source, callback)
+                structure = load_structure_file(source, callback)
                 preview = build_preview_map(structure)
                 self._events.put((job_id, "preview_done", structure, preview))
             except Exception as exc:  # Ошибку покажет главный tkinter-поток.
@@ -857,8 +1254,16 @@ class SchematicConverterApp(BaseWindow):
             self._set_status(self._tr("status_output_missing"), self.COLORS["danger"])
             messagebox.showerror(self._tr("folder_title"), self._tr("folder_error"), parent=self)
             return
-        reverse = source.suffix.lower() == ".nbt"
-        destination = output_dir / (f"{source.stem}_sponge.schem" if reverse else f"{source.stem}_structure.nbt")
+        selected_format = self.output_format_var.get()
+        if selected_format in (LANG["ru"]["automatic"], LANG["en"]["automatic"]):
+            suffix = ".schem" if source.suffix.lower() == ".nbt" else ".nbt"
+        else:
+            suffix = selected_format
+        label = {
+            ".nbt": "structure", ".schem": "sponge", ".schematic": "schematic", ".litematic": "edited",
+            ".stl": "print", ".obj": "model",
+        }.get(suffix, "export")
+        destination = output_dir / f"{source.stem}_{label}{suffix}"
         if destination.exists() and not messagebox.askyesno(
             self._tr("overwrite_title"), self._tr("overwrite", path=destination), parent=self,
         ):
@@ -882,7 +1287,21 @@ class SchematicConverterApp(BaseWindow):
             try:
                 started = time.perf_counter()
                 callback = lambda value, text: self._events.put((job_id, "progress", value, text))
-                result, structure, replacements = convert_file(source, destination, replacement, rotation, callback)
+                if self._structure_override is None:
+                    result, structure, replacements = convert_file(
+                        source, destination, replacement, rotation, callback,
+                        texture_pack=self.texture_pack_var.get().strip() or None,
+                    )
+                else:
+                    structure = copy.deepcopy(self._structure_override)
+                    replacements = 0
+                    if replacement:
+                        structure, replacements = replace_blocks(structure, replacement[0], replacement[1])
+                    if rotation:
+                        structure = rotate_structure(structure, rotation)
+                    result = save_structure_file(
+                        structure, destination, callback, self.texture_pack_var.get().strip() or None,
+                    )
                 elapsed = time.perf_counter() - started
                 preview = build_preview_map(structure)
                 self._events.put((job_id, "convert_done", result, structure, replacements, preview, elapsed))
@@ -1344,16 +1763,33 @@ def viewer_main(arguments: Optional[Sequence[str]] = None) -> None:
     parser.add_argument("--lang", choices=("ru", "en"), default="ru")
     parser.add_argument("--replace-from")
     parser.add_argument("--replace-to")
+    parser.add_argument("--texture-pack")
+    parser.add_argument("--highlight", default="")
+    parser.add_argument("--hidden-layers", default="")
+    parser.add_argument("--brush", default="minecraft:stone")
+    parser.add_argument("--brush-radius", type=int, default=0)
+    parser.add_argument("--save-path")
     options = parser.parse_args(arguments)
     try:
         source = Path(options.viewer3d)
-        structure = load_structure_nbt(source) if source.suffix.lower() == ".nbt" else load_schematic(source)
+        structure = load_structure_file(source)
         if options.replace_from and options.replace_to:
             structure, _count = replace_blocks(structure, options.replace_from, options.replace_to)
         if options.rotation:
             structure = rotate_structure(structure, options.rotation)
-        model = build_3d_render_model(structure)
-        _run_pyglet_viewer(model, options.lang)
+        from advanced_viewer import run_advanced_viewer
+
+        run_advanced_viewer(
+            structure,
+            language=options.lang,
+            texture_pack=options.texture_pack,
+            highlight=options.highlight,
+            hidden_layers=(name for name in options.hidden_layers.split(",") if name),
+            brush_block=options.brush,
+            brush_radius=max(0, options.brush_radius),
+            save_path=options.save_path,
+            version=APP_VERSION,
+        )
     except Exception as exc:
         _show_viewer_error(options.lang, exc)
 
