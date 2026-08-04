@@ -1,6 +1,6 @@
 # tkinter входит в стандартную библиотеку Python и через pip не устанавливается.
 nbtlib==1.12.1
-# Pillow используется для 2D-превью и программной генерации icon.ico.
+# Pillow is used by the 2D preview and to generate/load icon.ico.
 Pillow==10.4.0
 tkinterdnd2==0.6.2
 pyglet==2.1.15

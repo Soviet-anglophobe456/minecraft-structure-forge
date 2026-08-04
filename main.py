@@ -54,12 +54,12 @@ APP_VERSION = "v1.0.0"
 TELEGRAM_URL = "https://t.me/+h2MuJGnEZYtmNDY0"
 
 
-def resource_path(filename: str) -> Path:
-    """Возвращает путь к ресурсу и в исходниках, и внутри PyInstaller one-file."""
+def resource_path(relative_path: str) -> Path:
+    """Resolve a resource next to main.py or inside PyInstaller's _MEIPASS folder."""
 
     bundle_directory = getattr(sys, "_MEIPASS", None)
     base_directory = Path(bundle_directory) if bundle_directory else Path(__file__).resolve().parent
-    return base_directory / filename
+    return base_directory / relative_path
 
 
 # Все пользовательские надписи хранятся централизованно. Интерфейс
@@ -271,6 +271,7 @@ class SchematicConverterApp(BaseWindow):
         self.minsize(1040, 740)
         self.configure(bg=self.COLORS["bg"])
         self._window_icon_image: Optional[Any] = None
+        self._header_logo_image: Optional[Any] = None
         self._set_window_icon()
 
         self.source_var = tk.StringVar()
@@ -306,21 +307,21 @@ class SchematicConverterApp(BaseWindow):
         self.after(80, self._poll_events)
 
     def _set_window_icon(self) -> None:
-        """Безопасно устанавливает icon.ico для окна; отсутствие файла не критично."""
+        """Set the window icon without failing when the bundled resource is unavailable."""
 
         icon_path = resource_path("icon.ico")
         if not icon_path.is_file():
             return
 
-        # iconbitmap задаёт нативную Windows-иконку заголовка и панели задач.
+        # iconbitmap sets the native Windows title-bar and taskbar icon.
         try:
             self.iconbitmap(str(icon_path))
         except (OSError, tk.TclError):
-            # Некоторые Linux-сборки Tk не читают ICO через iconbitmap.
+            # Some non-Windows Tk builds cannot read ICO files via iconbitmap.
             pass
 
-        # iconphoto служит кроссплатформенным запасным вариантом. Ссылка на
-        # PhotoImage хранится в объекте окна, чтобы Tk не удалил изображение.
+        # iconphoto is the cross-platform fallback. Keep a reference on the
+        # window instance so Tk does not garbage-collect the PhotoImage.
         if Image is not None and ImageTk is not None:
             try:
                 with Image.open(icon_path) as source_image:
@@ -570,13 +571,44 @@ class SchematicConverterApp(BaseWindow):
         )
         self.info_label.grid(row=5, column=0, sticky="ew")
 
-    def _create_logo(self, parent: ttk.Frame) -> tk.Canvas:
-        canvas = tk.Canvas(parent, width=58, height=58, bg=self.COLORS["bg"], highlightthickness=0)
-        canvas.create_polygon(29, 2, 54, 15, 29, 29, 4, 15, fill="#55d797", outline="")
-        canvas.create_polygon(4, 17, 28, 31, 28, 57, 4, 43, fill="#26845b", outline="")
-        canvas.create_polygon(30, 31, 54, 17, 54, 43, 30, 57, fill="#34a970", outline="")
-        canvas.create_text(29, 29, text="S", fill="#07140e", font=("Segoe UI Black", 15))
-        return canvas
+    def _create_logo(self, parent: ttk.Frame) -> tk.Label:
+        """Display the same bundled SF icon in the application header."""
+
+        icon_path = resource_path("icon.ico")
+        if Image is not None and ImageTk is not None and icon_path.is_file():
+            try:
+                with Image.open(icon_path) as icon_source:
+                    # Select a high-resolution ICO layer before resizing it for
+                    # the header to preserve sharp edges.
+                    if hasattr(icon_source, "ico") and (64, 64) in icon_source.ico.sizes():
+                        logo_image = icon_source.ico.getimage((64, 64)).convert("RGBA")
+                    else:
+                        logo_image = icon_source.convert("RGBA")
+                    resampling = getattr(Image, "Resampling", Image)
+                    logo_image = logo_image.resize((58, 58), resampling.LANCZOS)
+                self._header_logo_image = ImageTk.PhotoImage(logo_image)
+                return tk.Label(
+                    parent,
+                    image=self._header_logo_image,
+                    bg=self.COLORS["bg"],
+                    bd=0,
+                    highlightthickness=0,
+                )
+            except (OSError, ValueError, tk.TclError):
+                pass
+
+        # Keep the interface usable if the resource is corrupt or Pillow is missing.
+        self._header_logo_image = None
+        return tk.Label(
+            parent,
+            text="SF",
+            width=4,
+            height=2,
+            bg=self.COLORS["bg"],
+            fg=self.COLORS["accent"],
+            font=("Segoe UI Black", 15),
+            bd=0,
+        )
 
     def _change_language(self, _event: Any = None) -> None:
         """Перестраивает все элементы интерфейса на выбранном языке."""
