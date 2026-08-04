@@ -81,7 +81,7 @@ Contributions are welcome! If you find a bug or have a feature idea:
 
     Submit a pull request
 
-    ⭐ Star the repo if you find it useful
+⭐ Star the repo if you find it useful
     [![GitHub stars](https://img.shields.io/github/stars/gevihall/minecraft-structure-forge)](https://github.com/gevihall/minecraft-structure-forge/stargazers)
 📜 License
 
