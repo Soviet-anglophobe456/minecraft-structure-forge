@@ -82,6 +82,11 @@ Contributions are welcome! If you find a bug or have a feature idea:
     Submit a pull request
 
 
+## 🤖 Acknowledgments
+
+This project was built with assistance from AI coding tools (Codex). All code was reviewed, tested, and customized by the author.
+
+
 ## 💖 Support the project
 
 If you find this tool useful, consider supporting its development:
