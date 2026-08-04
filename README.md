@@ -1,141 +1,90 @@
-# Minecraft Structure Forge
+Minecraft Structure Forge 🏗️
 
-Графическая программа для конвертации построек Minecraft Java Edition:
+Convert .schematic (WorldEdit) to .nbt (Structure Block) files with a beautiful GUI and 3D preview.
 
-- `.schematic` MCEdit / старый WorldEdit → `.nbt` структурного блока;
-- `.schem` Sponge v1/v2/v3 → `.nbt` структурного блока;
-- `.nbt` структурного блока → `.schem` Sponge v2 (обратное направление).
+[imgur](https://imgur.com/a/Xdz6xu2)
+Replace with actual screenshot
+📖 About
 
-Версия приложения: **v1.0.0**.
+Minecraft Structure Forge is a desktop tool that lets you convert Minecraft structure files from the popular .schematic format (used by WorldEdit, Sponge, etc.) into the vanilla .nbt structure block format - with zero command-line hassle.
 
-Программа умеет переносить палитру, блоки, block entities (тайлы) и сущности, заменять блоки, поворачивать постройку вокруг оси Y и строить интерактивное превью сверху. Поддерживаются Drag & Drop, масштабирование колёсиком, адаптивная сетка, автодополнение имён блоков и отдельный аппаратно ускоренный 3D-просмотр. Интерфейс динамически переключается между русским и английским языком.
+Just drag & drop your schematic, preview it in 3D, optionally replace blocks, and click Convert. That's it!
 
-## Требования
+This tool was built for builders, server admins, and mapmakers who want to share or import builds without fighting with conversion scripts.
+✨ Features
 
-- Python 3.8 или новее;
-- `tkinter` (обычно уже входит в Python);
-- зависимости из `requirements.txt`.
+    🔄 One‑click conversion - .schematic → .nbt in seconds.
 
-На Windows установщик Python с сайта python.org включает tkinter. На Debian/Ubuntu при необходимости выполните:
+    🖥️ 3D preview - rotate, zoom, and pan your build before conversion.
 
-```bash
-sudo apt install python3-tk
-```
+    📁 Drag & Drop - drop your file directly into the window.
 
-## Установка
+    🧱 Block replacement - replace one block type with another (with autocomplete).
 
-Откройте терминал в папке проекта и создайте виртуальное окружение:
+    🌍 Language switch - Russian / English (more coming).
 
-### Windows PowerShell
+    📐 Rotation - rotate your build by 90°, 180°, or 270°.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+    ⚡ Fast - optimized for large schematics.
 
-### Linux / macOS
+    📦 Portable - single .exe file, no installation required.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+🚀 Installation & Usage
+📦 For Windows (.exe – recommended)
 
-## Запуск
+    Download the latest MinecraftStructureForge.exe from the Releases page.
 
-```bash
-python main.py
-```
+    Run the file - no installation needed.
 
-## Использование
+    Drag & drop a .schematic file or use the Choose File button.
 
-1. Нажмите **«📂 Выбрать файл»** и откройте `.schematic`, `.schem` или `.nbt`. Также можно перетащить файл прямо в окно.
-2. Дождитесь загрузки мини-карты и сведений о постройке.
-3. Выберите папку сохранения.
-4. При необходимости включите **«Заменить блоки»**. Допустимы оба варианта:
-   - `minecraft:stone` — заменить все состояния блока по имени;
-   - `minecraft:oak_stairs[facing=north]` — заменить только точное состояние.
-5. Выберите поворот: 0°, 90°, 180° или 270° по часовой стрелке.
-6. Нажмите **«⚡ Конвертировать»**.
+    Adjust settings (block replacement, rotation) if needed.
 
-В области превью:
+    Click Convert - your .nbt file will be saved in the same folder.
 
-- вращайте колёсико мыши для масштабирования;
-- удерживайте среднюю кнопку мыши для перемещения большой карты;
-- используйте кнопки 0°/90°/180°/270° для поворота превью и результата;
-- наведите курсор на клетку, чтобы увидеть координаты, высоту и точный block state;
-- шаг сетки автоматически меняется при масштабировании.
+🐍 For Developers (run from source)
 
-## 3D-просмотр
+    Clone the repository:
+    bash
 
-После загрузки схемы нажмите **«◈ Открыть 3D»**. Модель откроется в отдельном процессе, поэтому окно конвертера продолжит отвечать на действия пользователя.
+    git clone https://github.com/gevihall/minecraft-structure-forge.git
+    cd minecraft-structure-forge
 
-- правая кнопка мыши — вращение камеры;
-- средняя кнопка мыши — панорамирование;
-- колёсико — приближение и отдаление;
-- `R` — сброс камеры;
-- `Esc` — закрытие 3D-окна.
+    Install dependencies:
+    bash
 
-Кубы объединяются в один VBO, а грани между соседними кубами не передаются видеокарте. Если в постройке больше 10 000 непустых блоков, включается упрощённый режим с равномерной выборкой до 5 000 блоков.
+    pip install -r requirements.txt
 
-Для исходного `castle.schematic` программа создаст `castle_structure.nbt`. Для исходного `castle.nbt` будет создан `castle_sponge.schem`.
+    Run the app:
+    bash
 
-## Установка `.nbt` в мир Minecraft Java
+    python main.py
 
-Поместите полученный файл в каталог мира:
+🧪 Example
 
-```text
-<папка мира>/generated/minecraft/structures/
-```
+    Input: my_build.schematic (size 64×32×64)
 
-Затем используйте структурный блок или команду `/place template minecraft:<имя_файла>` в поддерживаемой версии игры. Имя файла указывается без `.nbt`.
+    Action: Replace all minecraft:stone with minecraft:oak_planks + rotate 90°
 
-## Поддерживаемые варианты входа
+    Output: my_build.nbt – ready to place with a Structure Block in Minecraft.
 
-### Classic MCEdit / WorldEdit
+🤝 Contributing
 
-Читаются теги `Width`, `Height`, `Length`, `Blocks`, `Data`, необязательный `AddBlocks`, а также `TileEntities` и `Entities`. Числовые block ID и наиболее распространённые значения metadata переводятся в современные имена блоков. Неизвестный старый ID становится `minecraft:barrier`, а в окне показывается предупреждение.
+Contributions are welcome! If you find a bug or have a feature idea:
 
-### Sponge Schematic
+    Open an issue
 
-Поддерживаются:
+    Submit a pull request
 
-- v1/v2: `Palette` + VarInt-массив `BlockData`;
-- v3: `Blocks.Palette` + `Blocks.Data`;
-- варианты с прямым массивом `BlockIDs`.
+    ⭐ Star the repo if you find it useful
 
-### Java Structure NBT
+📜 License
 
-Читаются и создаются стандартные теги `DataVersion`, `size`, `palette`, `blocks`, `entities`, а NBT block entity помещается в соответствующую запись блока.
+This project is licensed under the MIT License – see the LICENSE file for details.
+💬 Support & Contact
 
-## Важные ограничения
+    Telegram: https://t.me/gevihalldeveloper
 
-- Это конвертер для **Java Edition**. Bedrock `.mcstructure` имеет другой формат и не поддерживается.
-- Старые числовые схемы до 1.13 не содержат современных block states. Конвертер восстанавливает распространённые свойства по metadata, но редкие состояния модовых/неизвестных блоков невозможно восстановить без таблицы конкретного мода.
-- Для старого входа без `DataVersion` записывается DataVersion `3465` (Java 1.20.1). Более новая игра обычно обновляет структуру через встроенный DataFixer.
-- Очень большие постройки требуют много памяти: формат Structure NBT хранит отдельную запись для каждого блока.
-- 3D-окно требует видеодрайвер с поддержкой OpenGL 3.3. На Linux также должны быть установлены системные библиотеки OpenGL/GLX.
-- Поворот обновляет координаты, `facing`, горизонтальный `axis`, `rotation` и формы рельсов. Сложные NBT-данные модовых блоков могут содержать собственные направления, неизвестные программе.
+    GitHub: https://github.com/gevihall
 
-## Запуск тестов
-
-Установите pytest и выполните:
-
-```bash
-pip install pytest
-pytest -q tests
-```
-
-## Структура проекта
-
-```text
-main.py              # tkinter GUI и фоновые задачи
-converter.py         # чтение, преобразование, поворот и запись NBT
-utils.py             # block states, legacy ID, цвета превью
-requirements.txt     # nbtlib, Pillow, tkinterdnd2, pyglet и PyOpenGL
-README.md            # эта инструкция
-tests/               # интеграционные тесты
-```
+Built with ❤️ by gevihall
